@@ -1,2 +1,2 @@
 # ScoutingAPI
-HElP iM IN hiS bAseMent - Vitaliy
+HElP iM IN hiS bAseMent

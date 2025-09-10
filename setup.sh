@@ -1,5 +1,4 @@
 #!/bin/bash
-
 echo "Creating a virtual environment for Flask."
 python3 -m venv .venv
 
