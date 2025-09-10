@@ -10,7 +10,7 @@ app = Flask(__name__)
 
 secret_key = "big_skibidi_roaming_kys"
 
-version = 0.1
+version = 0.3
 
 scoutingData = {
   # General Data

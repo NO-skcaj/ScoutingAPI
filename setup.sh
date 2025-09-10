@@ -11,4 +11,4 @@ pip install Flask
 pip install sqlite3
 
 echo "Operation Komplett!"
-echo "To start development, run: source .venv/bin/activate"
+echo "To start, run: source .venv/bin/activate"
