@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from flask import Flask, request
 from markupsafe import escape
 
@@ -5,12 +6,11 @@ import sqlite3
 
 import os
 
-
 app = Flask(__name__)
 
 secret_key = "big_skibidi_roaming_kys"
 
-version = 0.1
+version = 0.3
 
 scoutingData = {
   # General Data
@@ -62,101 +62,140 @@ scoutingData = {
   'comments': '' # varchar(250)
 }
 
-class database:
-
-    def __init__(self):        
-        self.filePath = "scouting.db"
+class Database:
+    def __init__(self):
+        self.file_path = "scouting.db"
+        self.con = None
+        self.cursor = None
+        self._connect()
+        self._ensure_tables_exist()
+    
+    def _connect(self):
+        """Establish a database connection."""
+        self.con = sqlite3.connect(self.file_path)
+        self.con.row_factory = sqlite3.Row  # Enable column access by name
+        self.cursor = self.con.cursor()
+    
+    def _ensure_tables_exist(self):
+        """Ensure the required tables exist in the database."""
+        create_command = '''
+        CREATE TABLE IF NOT EXISTS matchData (
+            eventKey          CHAR(8),
+            robotNum          INTEGER,
+            matchNum          INTEGER,
+            startPosition     CHAR(1),
+            submittedBy       TEXT,
+            aL4Score          INTEGER,
+            aL4Miss           INTEGER,
+            aL3Score          INTEGER,
+            aL3Miss           INTEGER,
+            aL2Score          INTEGER,
+            aL2Miss           INTEGER,
+            aL1Score          INTEGER,
+            aL1Miss           INTEGER,
+            aBargeScore       INTEGER,
+            aProcScore        INTEGER,
+            aAlgaeMiss        INTEGER,
+            aPickupFloor      INTEGER,
+            aPickupStation    INTEGER,
+            aPickupMiss       INTEGER,
+            telL4Score        INTEGER,
+            telL4Miss         INTEGER,
+            telL3Score        INTEGER,
+            telL3Miss         INTEGER,
+            telL2Score        INTEGER,
+            telL2Miss         INTEGER,
+            telL1Score        INTEGER,
+            telAlgaeScore     INTEGER,
+            telAlgaeMiss      INTEGER,
+            telPickupFloor    INTEGER,
+            telPickupStation  INTEGER,
+            telPickupMiss     INTEGER,
+            cageParkStatus    CHAR(1),
+            disabled          BOOLEAN,
+            playingDefense    BOOLEAN,
+            comments          TEXT,
+            PRIMARY KEY (eventKey, robotNum, matchNum)
+        )
+        '''
+        self.cursor.execute(create_command)
+        self.con.commit()
         
-        if not os.path.exists(self.filePath):
-            self.con = sqlite3.connect('scouting.db')
+    def __enter__(self):
+        return self
+        
+    def close(self):
+        """Close the database connection."""
+        if self.con:
+            self.con.close()
+            self.con = None
+            self.cursor = None
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
-            self.createCommand = '''
-                CREATE TABLE matchData (
-                    eventKey          CHAR(8),
-                    robotNum          INT,
-                    matchNum          INT,
-                    startPosition     CHAR(1),
-                    submittedBy       VARCHAR(250),
-                    aL4Score          INT,
-                    aL4Miss           INT,
-                    aL3Score          INT,
-                    aL3Miss           INT,
-                    aL2Score          INT,
-                    aL2Miss           INT,
-                    aL1Score          INT,
-                    aL1Miss           INT,
-                    aBargeScore       INT,
-                    aProcScore        INT,
-                    aAlgaeMiss        INT,
-                    aPickupFloor      INT,
-                    aPickupStation    INT,
-                    aPickupMiss       INT,
-                    telL4Score        INT,
-                    telL4Miss         INT,
-                    telL3Score        INT,
-                    telL3Miss         INT,
-                    telL2Score        INT,
-                    telL2Miss         INT,
-                    telL1Score        INT,
-                    telAlgaeScore     INT,
-                    telAlgaeMiss      INT,
-                    telPickupFloor    INT,
-                    telPickupStation  INT,
-                    telPickupMiss     INT,
-                    cageParkStatus    CHAR(1),
-                    disabled          TINYINT(1),
-                    playingDefense    TINYINT(1),
-                    comments          VARCHAR(250)
-                );
-            '''
-
-            self.cursor = self.con.cursor()
-            self.cursor.execute(self.createCommand)
-
-            self.con.commit()
-        else:
-            self.con = sqlite3.connect(self.filePath)
-            self.cursor = self.con.cursor()
-
-    def getScoutingData(whereConditions = "null"):
-
-        # WHERE conditions
-        whereConditions = whereConditions.replace("_", " ")
-        if whereConditions == "null":
-            whereConditions = ""
-        else:
-            whereConditions = "WHERE " + whereConditions
-
-        if (playingDefense = "null"):
-            if (playingDefense != "1" and playingDefense != "0"):
-                pass
-            else:
-                conditions = "WHERE playingDefense = " + playingDefense
-
-        # Getting the data
-        self.grabDataCommand = "SELECT * FROM matchData " + whereConditions
-        return data = self.cursor.execute(grabDataCommand).fetchall()
+    def getScoutingData(self, where_conditions="null", playing_defense=None):
+        # Build the WHERE clause
+        query = "SELECT * FROM matchData"
+        conditions = []
+        
+        # Add WHERE conditions if provided
+        if where_conditions != "null":
+            conditions.append(where_conditions.replace("_", " ").strip())
+            
+        # Add playingDefense condition if specified
+        if playing_defense is not None:
+            if playing_defense in (0, 1, "0", "1"):
+                conditions.append(f"playingDefense = {int(playing_defense)}")
+                
+        # Combine all conditions with AND
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+            
+        # Execute the query
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
             
     def __del__(self):
-        self.con.close()
+        if hasattr(self, 'con') and self.con is not None:
+            self.close()
 
-db = database()
-
-db.__del__()
+# Initialize database
+with Database() as db:
+    pass  # Database will be properly closed when the context exits
 
 @app.route("/info")
 def info():
-    if (request.args.get("key") != secret_key):
-        return "verification failed!"
-    return f"{version}"
+    if request.args.get("key") != secret_key:
+        return "verification failed!", 403
+    return {"version": version}
 
 @app.route("/getScouting")
-def getScouting():
-    if (request.args.get("key") != secret_key):
-        return "verification failed!"
-    else:
-        return str(scoutingData)
+def get_scouting():
+    if request.args.get("key") != secret_key:
+        return "verification failed!", 403
+    
+    try:
+        where_conditions = request.args.get("where", "null")
+        playing_defense = request.args.get("playing_defense")
+        
+        with Database() as db:
+            results = db.getScoutingData(
+                where_conditions=where_conditions,
+                playing_defense=playing_defense
+            )
+            
+        # Convert Row objects to dict for JSON serialization
+        return [dict(row) for row in results]
+    except Exception as e:
+        return {"error": str(e)}, 500
 
 @app.route("/getPitScouting")
-def getPitScouting():
-    pass # same as Scouting
+def get_pit_scouting():
+    if request.args.get("key") != secret_key:
+        return "verification failed!", 403
+    # Similar to get_scouting but for pit scouting data
+    return {"message": "Pit scouting endpoint"}
+
+if __name__ == "__main__":
+    app.run(debug=True, host='0.0.0.0', port=5001)
