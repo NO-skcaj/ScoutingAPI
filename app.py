@@ -120,7 +120,8 @@ class Database:
 
             disabled          BOOLEAN,
             playingDefense    BOOLEAN,
-            comments          TEXT
+            comments          TEXT,
+            PRIMARY KEY (eventKey, robotNum, matchNum)
         )
         '''
         self.cursor.execute(create_command)
@@ -143,16 +144,13 @@ class Database:
         # Build the WHERE clause
         query = "SELECT * FROM matchData"
         conditions = []
-        
+
         # Add WHERE conditions if provided
         if where_conditions:
             conditions.append(where_conditions.replace("_", " ").strip())
-        
-        # Combine all conditions with AND
-        if conditions:
-            query += " WHERE " 
-            for i in conditions:
-                query += " AND ".join(i)
+            query = "SELECT * FROM matchData WHERE " + where_conditions
+
+        app.logger.debug(query)
             
         # Execute the query
         self.cursor.execute(query)
@@ -212,16 +210,16 @@ class Database:
             decoded_data = urllib.parse.unquote(data)
             # Split by comma but be careful with quoted strings
             values = self._parse_csv_values(decoded_data)
-            
+
             self.cursor.execute(addCommand, values)
             self.con.commit()  # Fixed: use self.con instead of self.cursor
             return {"success": True, "message": "Data added successfully"}
         except sqlite3.Error as e:
             self.con.rollback()
-            return {"success": False, "error": f"Database error: {str(e)}"}
+            return {"success": False, "message": f"Database error: {str(e)}"}
         except Exception as e:
             self.con.rollback()
-            return {"success": False, "error": f"Unexpected error: {str(e)}"}
+            return {"success": False, "message": f"Unexpected error: {str(e)}"}
     
     def _parse_csv_values(self, data_string):
         """Parse CSV values, handling quoted strings properly"""
@@ -251,7 +249,7 @@ class Database:
 # Thread-local storage for database connections
 local_db = threading.local()
 
-def _get_db():
+def get_db():
     if not hasattr(local_db, 'db'):
         local_db.db = Database()
     return local_db.db
@@ -268,11 +266,11 @@ def get_scouting():
         return f"verification failed!", 403
     
     try:
-        results = get_db().get_scouting_data(where_conditions=request.args.get("where_conditions"))
+        results = get_db().get_scouting_data(request.args.get("where_conditions"))
         # Convert Row objects to dict for JSON serialization
         return jsonify([dict(row) for row in results])
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"success": False, "message": str(e)}), 500
 
 @app.route("/add_scouting")
 def add_scouting():
@@ -281,7 +279,7 @@ def add_scouting():
     
     data = request.args.get("data", "").strip()
     if not data:
-        return jsonify({"error": "No data provided"}), 400
+        return jsonify({"success": False, "message": "No data provided"}), 400
         
     result = get_db().add_scouting_data(data)
     if result.get("success"):
