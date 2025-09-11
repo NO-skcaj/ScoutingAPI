@@ -1,14 +1,19 @@
 #!/bin/bash
-echo "Creating a virtual environment for Flask."
+echo "Welcome to ScoutingAPI!!!"
+echo "Creating and activating a virtual environment for Flask..."
 python3 -m venv .venv
-
-echo "Activating the virtual environment..."
 source .venv/bin/activate
+echo "Virtual environment finished!"
 
 echo "Upgrading pip and installing Flask..."
 pip install --upgrade pip
 pip install Flask
-pip install sqlite3
+echo "Package install successful!"
 
-echo "Operation Komplett!"
+echo "Please enter the super secret password:"
+read thePassword
+echo "Creating the super secret secrets file..."
+echo $thePassword > super_duper_secret_password.txt
+
+echo "All operations Komplett!"
 echo "To start, run: source .venv/bin/activate"

@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from markupsafe import escape
 
 import sqlite3
-
+import urllib.parse
 import os
+import threading
 
 app = Flask(__name__)
 
-secret_key = "big_skibidi_roaming_kys"
+secret_key = open('super_duper_secret_password.txt', 'r').read()
 
 version = 0.3
 
 scoutingData = {
   # General Data
-  'eventKey': 'help',
+  'eventKey': '',
   'robotNum': 0,
   'matchNum': 0,
   'startPosition': '', # char(1) r: right, m: middle, l: left
@@ -28,6 +29,7 @@ scoutingData = {
   'aL2Score': 0,
   'aL2Miss':  0, 
   'aL1Score': 0,
+  'aL1Miss':  0,
   
   'aBargeScore': 0,
   'aProcScore':  0,
@@ -37,7 +39,7 @@ scoutingData = {
   'aPickupStation': 0,
   'aPickupMiss':    0,
   
-  # Auto
+  # Teleop
   'telL4Score': 0,
   'telL4Miss':  0, 
   'telL3Score': 0,
@@ -49,7 +51,7 @@ scoutingData = {
   'telAlgaeScore': 0,
   'telAlgaeMiss':  0,
   
-  'telPickupnFloor':   0,
+  'telPickupFloor':   0,
   'telPickupStation': 0,
   'telPickupMiss':    0,
 
@@ -73,11 +75,11 @@ class Database:
     def _connect(self):
         """Establish a database connection."""
         self.con = sqlite3.connect(self.file_path)
-        self.con.row_factory = sqlite3.Row  # Enable column access by name
+        self.con.row_factory = sqlite3.Row
         self.cursor = self.con.cursor()
     
     def _ensure_tables_exist(self):
-        """Ensure the required tables exist in the database."""
+        # Ensure the required tables exist in the database.
         create_command = '''
         CREATE TABLE IF NOT EXISTS matchData (
             eventKey          CHAR(8),
@@ -85,6 +87,7 @@ class Database:
             matchNum          INTEGER,
             startPosition     CHAR(1),
             submittedBy       TEXT,
+
             aL4Score          INTEGER,
             aL4Miss           INTEGER,
             aL3Score          INTEGER,
@@ -99,6 +102,7 @@ class Database:
             aPickupFloor      INTEGER,
             aPickupStation    INTEGER,
             aPickupMiss       INTEGER,
+
             telL4Score        INTEGER,
             telL4Miss         INTEGER,
             telL3Score        INTEGER,
@@ -111,11 +115,12 @@ class Database:
             telPickupFloor    INTEGER,
             telPickupStation  INTEGER,
             telPickupMiss     INTEGER,
+
             cageParkStatus    CHAR(1),
+
             disabled          BOOLEAN,
             playingDefense    BOOLEAN,
-            comments          TEXT,
-            PRIMARY KEY (eventKey, robotNum, matchNum)
+            comments          TEXT
         )
         '''
         self.cursor.execute(create_command)
@@ -134,68 +139,162 @@ class Database:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def getScoutingData(self, where_conditions="null", playing_defense=None):
+    def get_scouting_data(self, where_conditions):
         # Build the WHERE clause
         query = "SELECT * FROM matchData"
         conditions = []
         
         # Add WHERE conditions if provided
-        if where_conditions != "null":
+        if where_conditions:
             conditions.append(where_conditions.replace("_", " ").strip())
-            
-        # Add playingDefense condition if specified
-        if playing_defense is not None:
-            if playing_defense in (0, 1, "0", "1"):
-                conditions.append(f"playingDefense = {int(playing_defense)}")
-                
+        
         # Combine all conditions with AND
         if conditions:
-            query += " WHERE " + " AND ".join(conditions)
+            query += " WHERE " 
+            for i in conditions:
+                query += " AND ".join(i)
             
         # Execute the query
         self.cursor.execute(query)
         return self.cursor.fetchall()
+
+    def add_scouting_data(self, data):
+        # Fixed SQL command with proper placeholders and commas
+        addCommand = '''
+            INSERT INTO matchData
+            (
+                eventKey,
+                robotNum,
+                matchNum,
+                startPosition,
+                submittedBy,
+
+                aL4Score,
+                aL4Miss,
+                aL3Score,
+                aL3Miss,
+                aL2Score,
+                aL2Miss,
+                aL1Score,
+                aL1Miss,
+                aBargeScore,
+                aProcScore,
+                aAlgaeMiss,
+                aPickupFloor,
+                aPickupStation,
+                aPickupMiss,
+
+                telL4Score,
+                telL4Miss,
+                telL3Score,
+                telL3Miss,
+                telL2Score,
+                telL2Miss,
+                telL1Score,
+                telAlgaeScore,
+                telAlgaeMiss,
+                telPickupFloor,
+                telPickupStation,
+                telPickupMiss,
+
+                cageParkStatus,
+
+                disabled,
+                playingDefense,
+                comments
+            )
+            VALUES
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        '''
+
+        try:
+            # Parse the data string - URL decode first
+            decoded_data = urllib.parse.unquote(data)
+            # Split by comma but be careful with quoted strings
+            values = self._parse_csv_values(decoded_data)
+            
+            self.cursor.execute(addCommand, values)
+            self.con.commit()  # Fixed: use self.con instead of self.cursor
+            return {"success": True, "message": "Data added successfully"}
+        except sqlite3.Error as e:
+            self.con.rollback()
+            return {"success": False, "error": f"Database error: {str(e)}"}
+        except Exception as e:
+            self.con.rollback()
+            return {"success": False, "error": f"Unexpected error: {str(e)}"}
+    
+    def _parse_csv_values(self, data_string):
+        """Parse CSV values, handling quoted strings properly"""
+        import csv
+        import io
+        
+        # Use CSV reader to properly parse the comma-separated values
+        reader = csv.reader(io.StringIO(data_string))
+        values = next(reader)
+        
+        # Convert values to appropriate types
+        processed_values = []
+        for i, value in enumerate(values):
+            if value.lower() in ('true', 'false'):
+                processed_values.append(value.lower() == 'true')
+            elif value.isdigit() or (value.startswith('-') and value[1:].isdigit()):
+                processed_values.append(int(value))
+            else:
+                processed_values.append(value)
+        
+        return processed_values
             
     def __del__(self):
         if hasattr(self, 'con') and self.con is not None:
             self.close()
 
-# Initialize database
-with Database() as db:
-    pass  # Database will be properly closed when the context exits
+# Thread-local storage for database connections
+local_db = threading.local()
 
-@app.route("/info")
-def info():
-    if request.args.get("key") != secret_key:
-        return "verification failed!", 403
+def _get_db():
+    if not hasattr(local_db, 'db'):
+        local_db.db = Database()
+    return local_db.db
+
+@app.route("/root")
+def root():
+    if request.args.get("key", "").strip() != secret_key.strip():
+        return f"verification failed!", 403
     return {"version": version}
 
-@app.route("/getScouting")
+@app.route("/get_scouting")
 def get_scouting():
-    if request.args.get("key") != secret_key:
-        return "verification failed!", 403
+    if request.args.get("key", "").strip() != secret_key.strip():
+        return f"verification failed!", 403
     
     try:
-        where_conditions = request.args.get("where", "null")
-        playing_defense = request.args.get("playing_defense")
-        
-        with Database() as db:
-            results = db.getScoutingData(
-                where_conditions=where_conditions,
-                playing_defense=playing_defense
-            )
-            
+        results = get_db().get_scouting_data(where_conditions=request.args.get("where_conditions"))
         # Convert Row objects to dict for JSON serialization
-        return [dict(row) for row in results]
+        return jsonify([dict(row) for row in results])
     except Exception as e:
-        return {"error": str(e)}, 500
+        return jsonify({"error": str(e)}), 500
 
-@app.route("/getPitScouting")
+@app.route("/add_scouting")
+def add_scouting():
+    if request.args.get("key", "").strip() != secret_key.strip():
+        return f"verification failed!", 403
+    
+    data = request.args.get("data", "").strip()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+        
+    result = get_db().add_scouting_data(data)
+    if result.get("success"):
+        return jsonify(result), 200
+    else:
+        return jsonify(result), 500
+
+@app.route("/get_pit_scouting")
 def get_pit_scouting():
-    if request.args.get("key") != secret_key:
-        return "verification failed!", 403
+    if request.args.get("key", "").strip() != secret_key.strip():
+        return f"verification failed!", 403
     # Similar to get_scouting but for pit scouting data
     return {"message": "Pit scouting endpoint"}
 
 if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    app.run(debug=True, host='0.0.0.0', port=5000)
